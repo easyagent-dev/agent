@@ -55,6 +55,13 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 	completed := false
 	callback := r.agent.Callback
 	for i := 0; i < maxIterations && !completed; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+		default:
+		}
+
 		prompts, err := GetJsonAgentSystemPrompt(r.agent.Instructions, req.Options, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
@@ -68,7 +75,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		if err != nil {
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: err.Error(),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to execute BeforeModel callback: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
 			})
 			continue
 		}
@@ -85,7 +92,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		if err != nil {
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: err.Error(),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Model completion failed: %s\n\nPlease try a different approach or tool.", i+1, err.Error()),
 			})
 			continue
 		}
@@ -95,7 +102,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		if err != nil {
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: err.Error(),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to parse tool call from your response.\n\nInvalid JSON: %s\n\nError: %s\n\nPlease ensure your response is valid JSON matching the tool call schema.", i+1, output.Output, err.Error()),
 			})
 			continue
 		}
@@ -117,9 +124,13 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		// Handle tool call
 		tool, err := r.toolRegistry.GetTool(toolCall.Name)
 		if err != nil {
+			availableTools := []string{}
+			for _, t := range r.toolRegistry.GetTools() {
+				availableTools = append(availableTools, t.Name())
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: err.Error(),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Tool '%s' not found.\n\nAvailable tools: %v\n\nPlease use one of the available tools.", i+1, toolCall.Name, availableTools),
 			})
 			continue
 		}
@@ -129,7 +140,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			if err != nil {
 				messages = append(messages, &llm.ModelMessage{
 					Role:    llm.RoleUser,
-					Content: err.Error(),
+					Content: fmt.Sprintf("ERROR [Iteration %d]: BeforeToolCall callback failed for tool '%s'.\n\nError: %s\n\nPlease try a different tool or approach.", i+1, toolCall.Name, err.Error()),
 				})
 				continue
 			}
@@ -149,9 +160,13 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 
 		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
 		if err != nil {
+			inputSummary := fmt.Sprintf("%v", toolCall.Input)
+			if len(inputSummary) > 200 {
+				inputSummary = inputSummary[:200] + "..."
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: err.Error(),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Tool '%s' execution failed.\n\nTool Input: %s\n\nError: %s\n\nPlease review the error and adjust your tool parameters or try a different approach.", i+1, toolCall.Name, inputSummary, err.Error()),
 			})
 			continue
 		}
@@ -161,7 +176,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			if err != nil {
 				messages = append(messages, &llm.ModelMessage{
 					Role:    llm.RoleUser,
-					Content: err.Error(),
+					Content: fmt.Sprintf("ERROR [Iteration %d]: AfterToolCall callback failed for tool '%s'.\n\nError: %s\n\nThe tool executed successfully, but post-processing failed. Please proceed with the next step.", i+1, toolCall.Name, err.Error()),
 				})
 				continue
 			}

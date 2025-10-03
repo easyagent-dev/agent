@@ -7,5 +7,5 @@ import (
 
 type Runner interface {
 	Run(ctx context.Context, req *AgentRequest) (*AgentResponse, error)
-	//RunStream(ctx context.Context, req *AgentRequest, callback Callback) (*AgentResponse, error)
+	//RunStream(ctx context.Context, req *AgentRequest) (*AgentStreamResponse, error)
 }
