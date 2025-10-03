@@ -1,4 +1,4 @@
-package easyagent
+package agent
 
 import (
 	"context"
@@ -6,194 +6,209 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-
-	"github.com/easymvp/easyllm"
+	"github.com/easymvp-ai/llm"
 	"github.com/google/uuid"
 )
 
 type CompletionRunner struct {
-	agent         *Agent
-	modelRegistry *ModelRegistry
-	toolRegistry  *ToolRegistry
+	agent        *Agent
+	model        llm.CompletionModel
+	toolRegistry *ToolRegistry
 }
 
 var _ Runner = (*CompletionRunner)(nil)
 
-func NewCompletionRunner(agent *Agent, modelRegistry *ModelRegistry, toolRegistry *ToolRegistry) (Runner, error) {
-	agentRegistry := NewToolRegistry()
-	for _, toolName := range agent.Tools {
-		tool, err := toolRegistry.GetTool(toolName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to register tool: %w", err)
-		}
-		_ = agentRegistry.RegisterTool(tool)
+func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (Runner, error) {
+	toolRegistry := NewToolRegistry()
+	for _, tool := range agent.Tools {
+		_ = toolRegistry.RegisterTool(tool)
 	}
 	return &CompletionRunner{
-		agent:         agent,
-		modelRegistry: modelRegistry,
-		toolRegistry:  agentRegistry,
+		agent:        agent,
+		model:        model,
+		toolRegistry: toolRegistry,
 	}, nil
 }
 
 // Run executes the agent with the given content
-func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentResponse, error) {
+func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentResponse, error) {
 	var results any = nil
-	_ = r.toolRegistry.RegisterTool(NewCompleteTaskTool(req.Config.JSONSchema, ""))
+	_ = r.toolRegistry.RegisterTool(NewCompleteTaskTool(req.OutputSchema, req.OutputUsage))
 
 	messages := req.Messages
 	maxIterations := req.MaxIterations
 
-	modelInstance, err := r.modelRegistry.GetModel(req.ModelProvider)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get model provider: %w", err)
-	}
-
 	userMessage := messages[len(messages)-1]
-	if userMessage.Role != easyllm.MessageRoleUser {
+	if userMessage.Role != llm.RoleUser {
 		return nil, errors.New("last message is not user message")
 	}
-
 	agentContext := &AgentContext{
-		Agent:     r.agent,
-		Messages:  messages,
-		Callback:  callback,
-		ToolCalls: []*easyllm.ToolCall{},
+		Agent:       r.agent,
+		Messages:    messages,
+		ToolsCalled: []*llm.ToolCall{},
 	}
 	ctx = WithAgentContext(ctx, agentContext)
 
-	usage := &easyllm.TokenUsage{}
+	usage := &llm.TokenUsage{}
 	totalCost := 0.0
 
 	completed := false
-
+	callback := r.agent.Callback
 	for i := 0; i < maxIterations && !completed; i++ {
-		prompts, err := GetJsonAgentSystemPrompt(r.agent.Instructions, req.Config.JSONSchema, userMessage, r.toolRegistry.GetTools())
+		prompts, err := GetJsonAgentSystemPrompt(r.agent.Instructions, req.Options, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
 		}
-		modelReq := &easyllm.ModelRequest{
+		completionReq := &llm.CompletionRequest{
+			Model:        req.Model,
 			Instructions: prompts,
 			Messages:     messages,
-			Config:       req.Config,
 		}
-		callback.OnModel(ctx, req.ModelProvider, req.Model, prompts, messages)
-		output, err := modelInstance.GenerateContent(ctx, modelReq, r.toolRegistry.GetTools())
+		completionResp, err := callback.BeforeModel(ctx, r.model.Name(), req.Model, completionReq)
 		if err != nil {
-			return nil, fmt.Errorf("failed to call model completion: %w", err)
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: err.Error(),
+			})
+			continue
 		}
 
-		agentStep := &AgentStep{}
-		err = json.Unmarshal([]byte(output.Output), agentStep)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert agent step: %w", err)
+		if completionResp != nil {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleAssistant,
+				Content: completionResp.Output,
+			})
+			continue
 		}
+
+		output, err := r.model.Complete(ctx, completionReq)
+		if err != nil {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: err.Error(),
+			})
+			continue
+		}
+
+		toolCall := &llm.ToolCall{}
+		err = json.Unmarshal([]byte(output.Output), toolCall)
+		if err != nil {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: err.Error(),
+			})
+			continue
+		}
+		toolCall.ID = uuid.New().String()
+		messages = append(messages, &llm.ModelMessage{
+			Role:     llm.RoleAssistant,
+			Content:  "",
+			ToolCall: toolCall,
+		})
 
 		if output.Usage != nil {
 			usage.Append(output.Usage)
 		}
+
 		if output.Cost != nil {
 			totalCost += *output.Cost
 		}
 
-		// Handle reasoning
-		if agentStep.Reasoning != "" {
-			callback.OnReasoning(ctx, agentStep.Reasoning)
-		}
-
 		// Handle tool call
-		toolName := agentStep.ToolCall.Name
-		tool, err := r.toolRegistry.GetTool(toolName)
-		toolCallId := uuid.New().String()
+		tool, err := r.toolRegistry.GetTool(toolCall.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get tool, %s: %w", toolName, err)
-		}
-
-		toolInput := ""
-		if agentStep.ToolCall.Input != nil {
-			toolInput = fmt.Sprintf("%v", agentStep.ToolCall.Input)
-		}
-
-		if strings.Contains(toolInput, "google") {
-			usage.TotalWebSearches += 1
-		}
-
-		messages = append(messages, &easyllm.ModelMessage{
-			Role:    easyllm.MessageRoleAssistant,
-			Content: "",
-			ToolCall: &easyllm.ToolCall{
-				ID:    toolCallId,
-				Name:  toolName,
-				Input: agentStep.ToolCall.Input,
-			},
-		})
-		callback.OnToolCallStart(ctx, toolName, toolInput)
-		callback.OnReasoning(ctx, "\n\n[tool] call "+toolName)
-
-		timestamp := time.Now().UnixMilli()
-		toolResults, err := tool.Run(ctx, toolInput)
-		agentContext.ToolCalls = append(agentContext.ToolCalls, &easyllm.ToolCall{
-			ID:     toolCallId,
-			Name:   toolName,
-			Input:  toolInput,
-			Output: &toolResults,
-		})
-		if err != nil {
-			output := "tool call failed: " + err.Error()
-			messages = append(messages, &easyllm.ModelMessage{
-				Role:    easyllm.MessageRoleTool,
-				Content: "",
-				ToolCall: &easyllm.ToolCall{
-					ID:     toolCallId,
-					Name:   toolName,
-					Output: &output,
-				},
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: err.Error(),
 			})
-			callback.OnReasoning(ctx, " failed, "+err.Error()+", in "+strconv.FormatInt(time.Now().UnixMilli()-timestamp, 10)+"ms\n\n")
-		} else {
-			if toolResults == "" {
-				output := "tool call successfully with no results"
-				messages = append(messages, &easyllm.ModelMessage{
-					Role:    easyllm.MessageRoleTool,
-					Content: "",
-					ToolCall: &easyllm.ToolCall{
-						ID:     toolCallId,
-						Name:   toolName,
-						Output: &output,
-					},
+			continue
+		}
+
+		if tool.Name() != CompleteTaskToolName {
+			beforeToolCallOutput, err := callback.BeforeToolCall(ctx, toolCall.Name, toolCall.Input)
+			if err != nil {
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleUser,
+					Content: err.Error(),
 				})
-				callback.OnReasoning(ctx, " completed, returns no results, in "+strconv.FormatInt(time.Now().UnixMilli()-timestamp, 10)+"ms\n\n")
-			} else {
-				messages = append(messages, &easyllm.ModelMessage{
-					Role:    easyllm.MessageRoleTool,
-					Content: "",
-					ToolCall: &easyllm.ToolCall{
-						ID:     toolCallId,
-						Name:   toolName,
-						Output: &toolResults,
-					},
+				continue
+			}
+
+			if beforeToolCallOutput != nil {
+				content, err := json.Marshal(beforeToolCallOutput)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
+				}
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleTool,
+					Content: string(content),
 				})
-				callback.OnReasoning(ctx, " completed, in "+strconv.FormatInt(time.Now().UnixMilli()-timestamp, 10)+"ms\n\n")
+				continue
 			}
 		}
-		callback.OnToolCallEnd(ctx, toolName, toolInput, toolResults)
-		if toolName == CompleteTaskToolName {
+
+		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
+		if err != nil {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: err.Error(),
+			})
+			continue
+		}
+
+		if tool.Name() != CompleteTaskToolName {
+			afterToolCallOutput, err := callback.AfterToolCall(ctx, toolCall.Name, toolCall.Input, toolCallOutput)
+			if err != nil {
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleUser,
+					Content: err.Error(),
+				})
+				continue
+			}
+
+			if afterToolCallOutput != nil {
+				content, err := json.Marshal(afterToolCallOutput)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
+				}
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleTool,
+					Content: string(content),
+				})
+				continue
+			}
+		}
+
+		if tool.Name() == CompleteTaskToolName {
 			completed = true
-			results = &toolResults
+			results = toolCallOutput
+		} else {
+			if toolCallOutput == nil {
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleTool,
+					Content: "Tool call success, no results",
+				})
+			} else {
+				content, err := json.Marshal(toolCallOutput)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
+				}
+				messages = append(messages, &llm.ModelMessage{
+					Role: llm.RoleTool,
+					ToolCall: &llm.ToolCall{
+						ID:     toolCall.ID,
+						Name:   toolCall.Name,
+						Input:  toolCall.Input,
+						Output: string(content),
+					},
+				})
+			}
 		}
 	}
-
-	if results == nil {
-		return nil, errors.New("agent exceeded max iterations")
-	}
-
-	runnerOutput := &AgentResponse{
+	resp := &AgentResponse{
 		Output: results,
 		Usage:  usage,
 		Cost:   &totalCost,
 	}
-	callback.OnUsage(ctx, req.ModelProvider, req.Model, runnerOutput.Usage)
-	return runnerOutput, nil
+	return resp, nil
 }

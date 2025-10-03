@@ -1,0 +1,91 @@
+package agent
+
+import (
+	"github.com/easymvp-ai/llm"
+	"github.com/easymvp/streamjson"
+)
+
+// AgentStepJsonParser parses streaming JSON for AgentStep using tokenizer for reasoning only
+type AgentStepJsonParser struct {
+	reasoning string
+	toolCall  *llm.ToolCall
+	parser    *streamjson.StreamJSONParser
+}
+
+// NewAgentStepJsonParser creates a new JSON parser for AgentStep
+func NewAgentStepJsonParser() *AgentStepJsonParser {
+	return &AgentStepJsonParser{
+		parser:    streamjson.NewStreamJSONParser(),
+		reasoning: "",
+	}
+}
+
+// Append adds new content to the buffer
+func (p *AgentStepJsonParser) Append(content string) {
+	p.parser.Append(content)
+}
+
+func (p *AgentStepJsonParser) ParseNext() ([]*ModelEvent, error) {
+	blocks := make([]*ModelEvent, 0)
+
+	completed := p.parser.IsCompleted()
+
+	if completed {
+		blocks = append(blocks, &AgentEvent{
+			Type:    AgentEventTypeReasoning,
+			Content: step.Reasoning,
+			Partial: !completed,
+		})
+		p.reasoning = step.Reasoning
+		blocks = append(blocks, &AgentEvent{
+			Type: AgentEventTypeUseTool,
+			Attributes: map[string]string{
+				"name": step.ToolCall.Name,
+			},
+			Content: step.ToolCall.Params,
+			Partial: !completed,
+		})
+		p.toolCall = step.ToolCall
+		return blocks, nil
+	}
+
+	if p.reasoning != step.Reasoning {
+		blocks = append(blocks, &AgentEvent{
+			Type:    AgentEventTypeReasoning,
+			Content: step.Reasoning[len(p.reasoning):],
+			Partial: !completed,
+		})
+		p.reasoning = step.Reasoning
+	}
+
+	if step.ToolCall != nil && p.IsStepChanged(step.ToolCall) {
+		params, _, err := utils.CompleteJSON(step.ToolCall.Params)
+		if err != nil {
+			return blocks, nil
+		}
+		blocks = append(blocks, &AgentEvent{
+			Type: AgentEventTypeUseTool,
+			Attributes: map[string]string{
+				"name": step.ToolCall.Name,
+			},
+			Content: params,
+			Partial: !completed,
+		})
+		p.toolCall = step.ToolCall
+	}
+	return blocks, nil
+}
+
+func (p *AgentStepJsonParser) IsStepChanged(toolCall *llm.ToolCall) bool {
+	if p.toolCall == nil {
+		return true
+	} else {
+		if p.toolCall.Name != toolCall.Name {
+			return true
+		}
+		if p.toolCall.Input != toolCall.Input {
+			return true
+		}
+		return false
+	}
+}

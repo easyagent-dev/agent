@@ -1,8 +1,9 @@
-package easyagent
+package agent
 
 type Agent struct {
 	Name         string
 	Description  string
 	Instructions string
-	Tools        []string
+	Tools        []ModelTool
+	Callback     Callback
 }

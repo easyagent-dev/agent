@@ -1,24 +1,23 @@
-package easyagent
+package agent
 
 import (
 	"context"
-	"github.com/easymvp/easyllm"
 )
 
 const CompleteTaskToolName = "complete_task"
 
 // CompleteTaskTool is a mock implementation of the complete_task tool for testing
 type CompleteTaskTool struct {
-	outputSchema  any
-	outputExample string
+	outputSchema any
+	usage        string
 }
 
-var _ easyllm.ModelTool = &CompleteTaskTool{}
+var _ ModelTool = &CompleteTaskTool{}
 
-func NewCompleteTaskTool(outputSchema any, outputExample string) *CompleteTaskTool {
+func NewCompleteTaskTool(outputSchema any, usage string) *CompleteTaskTool {
 	return &CompleteTaskTool{
-		outputSchema:  outputSchema,
-		outputExample: outputExample,
+		outputSchema: outputSchema,
+		usage:        usage,
 	}
 }
 
@@ -38,12 +37,12 @@ func (t *CompleteTaskTool) InputSchema() any {
 }
 
 func (t *CompleteTaskTool) OutputSchema() any {
-	return t.outputSchema
+	return nil
 }
 
 // Usage returns an example of how to use the tool
 func (t *CompleteTaskTool) Usage() string {
-	return t.outputExample
+	return t.usage
 }
 
 // Execute runs the tool with the provided parameters

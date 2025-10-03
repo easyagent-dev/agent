@@ -1,13 +1,12 @@
-package easyagent
+package agent
 
-import (
-	"github.com/easymvp/easyllm"
-)
+import "github.com/easymvp-ai/llm"
 
 type AgentRequest struct {
-	ModelProvider string
 	Model         string
-	Config        *easyllm.ModelConfig
-	Messages      []*easyllm.ModelMessage
+	OutputSchema  any
+	OutputUsage   string
+	Messages      []*llm.ModelMessage
+	Options       []llm.CompletionOption
 	MaxIterations int
 }
