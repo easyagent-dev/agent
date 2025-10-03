@@ -36,7 +36,7 @@ func GetJsonAgentSystemPrompt(instructions string, outputSchema any, message *ll
 
 func ToolsPrompts(tools []ModelTool) (string, error) {
 	if len(tools) == 0 {
-		return "No tools", nil
+		return "No tools available", nil
 	}
 
 	// Use strings.Builder for efficient string concatenation
@@ -48,15 +48,21 @@ func ToolsPrompts(tools []ModelTool) (string, error) {
 			builder.WriteString("\n")
 		}
 		inputSchema, _ := json.Marshal(tool.InputSchema())
-		builder.WriteString("## ")
+		builder.WriteString("<tool name=\"")
 		builder.WriteString(tool.Name())
-		builder.WriteString("\nDescription:")
+		builder.WriteString("\">\n<description>")
 		builder.WriteString(tool.Description())
-		builder.WriteString("\nInput: ```jsonschema\n")
+		builder.WriteString("</description>\n<input_schema>\n")
 		builder.Write(inputSchema)
-		builder.WriteString("\n```\nUsage: ```")
-		builder.WriteString(tool.Usage())
-		builder.WriteString("\n```")
+		builder.WriteString("\n</input_schema>")
+
+		usage := tool.Usage()
+		if usage != "" {
+			builder.WriteString("\n<usage>\n")
+			builder.WriteString(usage)
+			builder.WriteString("\n</usage>")
+		}
+		builder.WriteString("\n</tool>")
 	}
 	return builder.String(), nil
 }
