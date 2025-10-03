@@ -101,7 +101,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			default:
 			}
 
-			prompts, err := GetJsonAgentSystemPrompt(r.agent.Instructions, req.Options, userMessage, r.toolRegistry.GetTools())
+			prompts, err := GetJsonAgentSystemPrompt(r.agent, req.Options, userMessage, r.toolRegistry.GetTools())
 			if err != nil {
 				errMsg := err.Error()
 				eventChan <- AgentEvent{
@@ -422,6 +422,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 
 	completed := false
 	callback := r.agent.Callback
+	consecutiveErrors := 0
 	for i := 0; i < maxIterations && !completed; i++ {
 		// Check context cancellation
 		select {
@@ -430,7 +431,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		default:
 		}
 
-		prompts, err := GetJsonAgentSystemPrompt(r.agent.Instructions, req.Options, userMessage, r.toolRegistry.GetTools())
+		prompts, err := GetJsonAgentSystemPrompt(r.agent, req.Options, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
 		}
@@ -441,6 +442,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		}
 		completionResp, err := callback.BeforeModel(ctx, r.model.Name(), req.Model, completionReq)
 		if err != nil {
+			consecutiveErrors++
+			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
+				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
 				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to execute BeforeModel callback: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
@@ -458,6 +463,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 
 		output, err := r.model.Complete(ctx, completionReq)
 		if err != nil {
+			consecutiveErrors++
+			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
+				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
 				Content: fmt.Sprintf("ERROR [Iteration %d]: Model completion failed: %s\n\nPlease try a different approach or tool.", i+1, err.Error()),
@@ -468,6 +477,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		// Call AfterModel callback
 		afterResp, err := callback.AfterModel(ctx, r.model.Name(), req.Model, completionReq, output)
 		if err != nil {
+			consecutiveErrors++
+			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
+				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
 				Content: fmt.Sprintf("ERROR [Iteration %d]: AfterModel callback failed: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
@@ -481,6 +494,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		toolCall := &llm.ToolCall{}
 		err = json.Unmarshal([]byte(output.Output), toolCall)
 		if err != nil {
+			consecutiveErrors++
+			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
+				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
+			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
 				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to parse tool call from your response.\n\nInvalid JSON: %s\n\nError: %s\n\nPlease ensure your response is valid JSON matching the tool call schema.", i+1, output.Output, err.Error()),
@@ -567,6 +584,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		agentContext.AddExecution(execution)
 
 		if err != nil {
+			consecutiveErrors++
+			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
+				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
+			}
 			inputSummary := fmt.Sprintf("%v", toolCall.Input)
 			if len(inputSummary) > InputSummaryMaxLen {
 				inputSummary = inputSummary[:InputSummaryMaxLen] + InputSummaryEllipsis
@@ -577,6 +598,9 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			})
 			continue
 		}
+
+		// Reset consecutive errors on successful tool execution
+		consecutiveErrors = 0
 
 		if tool.Name() != CompleteTaskToolName {
 			afterToolCallOutput, err := callback.AfterToolCall(ctx, toolCall.Name, toolCall.Input, toolCallOutput)

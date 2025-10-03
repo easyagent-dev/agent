@@ -15,7 +15,7 @@ import (
 //go:embed prompts/json_system.md
 var jsonSystemPrompt string //nolint:gochecknoglobals
 
-func GetJsonAgentSystemPrompt(instructions string, outputSchema any, message *llm.ModelMessage, tools []ModelTool) (string, error) {
+func GetJsonAgentSystemPrompt(agent *CompletionAgent, outputSchema any, message *llm.ModelMessage, tools []ModelTool) (string, error) {
 	toolsPrompt, err := ToolsPrompts(tools)
 	if err != nil {
 		return "", fmt.Errorf("failed to create tools prompt: %w", err)
@@ -23,7 +23,7 @@ func GetJsonAgentSystemPrompt(instructions string, outputSchema any, message *ll
 
 	outputSchemaJSON, _ := json.Marshal(outputSchema)
 	prompts, err := GetPrompts(jsonSystemPrompt, map[string]interface{}{
-		"instructions": instructions,
+		"agent":        agent,
 		"tools":        toolsPrompt,
 		"userQuery":    message.Content,
 		"outputSchema": string(outputSchemaJSON),

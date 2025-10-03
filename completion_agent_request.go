@@ -29,6 +29,10 @@ type AgentRequest struct {
 	// MaxIterations is the maximum number of tool-calling iterations allowed
 	// Must be positive. Prevents infinite loops in agent execution.
 	MaxIterations int
+
+	// MaxRetries is the maximum number of consecutive retries allowed when errors occur
+	// If 0 or negative, no retry limit is enforced
+	MaxRetries int
 }
 
 // Validate validates the agent request parameters and returns an error if invalid.
