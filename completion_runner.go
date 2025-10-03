@@ -149,7 +149,6 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			streamClosed := false
 			var toolCall *llm.ToolCall
 
-			reasoning := ""
 			// Process stream chunks
 			for {
 				if streamClosed || completed || toolCall != nil {
@@ -166,10 +165,9 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 					chunkType := chunk.Type()
 					if chunkType == llm.ReasoningChunkType {
 						reasoningChunk := chunk.(llm.StreamReasoningChunk)
-						reasoning += reasoningChunk.Reasoning
 						eventChan <- AgentEvent{
 							Type:      AgentEventTypeReasoning,
-							Reasoning: &reasoning,
+							Reasoning: &reasoningChunk.Reasoning,
 						}
 					} else if chunkType == llm.TextChunkType {
 						textChunk := chunk.(llm.StreamTextChunk)
@@ -276,10 +274,20 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 				}
 			}
 
+			// Validate tool input type
+			inputMap, ok := toolCall.Input.(map[string]any)
+			if !ok {
+				messages = append(messages, &llm.ModelMessage{
+					Role:    llm.RoleUser,
+					Content: fmt.Sprintf("ERROR [Iteration %d]: Invalid tool input format. Expected object, got %T\n\nPlease provide a valid JSON object as tool input.", i+1, toolCall.Input),
+				})
+				continue
+			}
+
 			// Track tool execution with timing
 			startTime := getCurrentTimestamp()
 			startNano := getCurrentNanos()
-			toolCallOutput, err := tool.Run(ctx, toolCall.Input.(map[string]any))
+			toolCallOutput, err := tool.Run(ctx, inputMap)
 			duration := getCurrentNanos() - startNano
 
 			// Record execution in history
@@ -531,10 +539,20 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			}
 		}
 
+		// Validate tool input type
+		inputMap, ok := toolCall.Input.(map[string]any)
+		if !ok {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Invalid tool input format. Expected object, got %T\n\nPlease provide a valid JSON object as tool input.", i+1, toolCall.Input),
+			})
+			continue
+		}
+
 		// Track tool execution with timing
 		startTime := getCurrentTimestamp()
 		startNano := getCurrentNanos()
-		toolCallOutput, err := tool.Run(ctx, toolCall.Input.(map[string]any))
+		toolCallOutput, err := tool.Run(ctx, inputMap)
 		duration := getCurrentNanos() - startNano
 
 		// Record execution in history

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"sync"
+
 	"github.com/easymvp-ai/llm"
 )
 
@@ -25,6 +27,7 @@ func WithAgentContext(ctx context.Context, ac *AgentContext) context.Context {
 
 // AgentContext holds the execution context for an agent execution.
 // It tracks the agent state, conversation history, and execution history.
+// This type is safe for concurrent use.
 type AgentContext struct {
 	// Agent is the agent being executed
 	Agent *CompletionAgent
@@ -34,6 +37,9 @@ type AgentContext struct {
 
 	// Session is a key-value store for session-specific data
 	Session map[string]any
+
+	// mu protects ExecutionHistory from concurrent access
+	mu sync.RWMutex
 
 	// ExecutionHistory tracks detailed tool execution information
 	ExecutionHistory []ToolExecution
@@ -62,7 +68,11 @@ type ToolExecution struct {
 }
 
 // IsToolCalled checks if a tool with the given name has been called during this execution.
+// This method is safe for concurrent use.
 func (ac *AgentContext) IsToolCalled(name string) bool {
+	ac.mu.RLock()
+	defer ac.mu.RUnlock()
+
 	for _, toolCall := range ac.ExecutionHistory {
 		if toolCall.ToolName == name {
 			return true
@@ -72,16 +82,24 @@ func (ac *AgentContext) IsToolCalled(name string) bool {
 }
 
 // AddExecution records a tool execution in the execution history.
+// This method is safe for concurrent use.
 func (ac *AgentContext) AddExecution(execution ToolExecution) {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+
 	if ac.ExecutionHistory == nil {
-		ac.ExecutionHistory = make([]ToolExecution, 0)
+		ac.ExecutionHistory = make([]ToolExecution, 0, 10) // Pre-allocate with capacity
 	}
 	ac.ExecutionHistory = append(ac.ExecutionHistory, execution)
 }
 
 // GetExecutionsByTool returns all executions for a specific tool.
+// This method is safe for concurrent use.
 func (ac *AgentContext) GetExecutionsByTool(toolName string) []ToolExecution {
-	var executions []ToolExecution
+	ac.mu.RLock()
+	defer ac.mu.RUnlock()
+
+	executions := make([]ToolExecution, 0, len(ac.ExecutionHistory)/2) // Reasonable pre-allocation
 	for _, exec := range ac.ExecutionHistory {
 		if exec.ToolName == toolName {
 			executions = append(executions, exec)

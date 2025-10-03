@@ -2,6 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
 	"github.com/easymvp-ai/llm"
 )
 
@@ -52,18 +56,92 @@ func (c *DefaultCallback) AfterModel(ctx context.Context, provider string, model
 	return nil, nil
 }
 
-// BeforeToolCall logs the tool call
+// sensitiveKeys are keys that should be redacted in logs
+var sensitiveKeys = []string{
+	"password", "passwd", "pwd",
+	"secret", "api_key", "apikey", "api-key",
+	"token", "auth", "authorization",
+	"private_key", "privatekey", "private-key",
+	"access_token", "refresh_token",
+	"session", "cookie",
+	"credential", "credentials",
+}
+
+// sanitizeForLogging removes sensitive data from logs
+func sanitizeForLogging(data any, maxLen int) any {
+	if data == nil {
+		return nil
+	}
+
+	// If maxLen is 0, use a reasonable default
+	if maxLen == 0 {
+		maxLen = 500
+	}
+
+	// Handle different types
+	switch v := data.(type) {
+	case string:
+		if len(v) > maxLen {
+			return v[:maxLen] + "... (truncated)"
+		}
+		return v
+	case map[string]any:
+		sanitized := make(map[string]any)
+		for key, value := range v {
+			lowerKey := strings.ToLower(key)
+			isSensitive := false
+			for _, sensitiveKey := range sensitiveKeys {
+				if strings.Contains(lowerKey, sensitiveKey) {
+					isSensitive = true
+					break
+				}
+			}
+			if isSensitive {
+				sanitized[key] = "***REDACTED***"
+			} else {
+				sanitized[key] = sanitizeForLogging(value, maxLen)
+			}
+		}
+		return sanitized
+	case []any:
+		sanitized := make([]any, len(v))
+		for i, item := range v {
+			sanitized[i] = sanitizeForLogging(item, maxLen)
+		}
+		return sanitized
+	default:
+		// For other types, try to convert to JSON and truncate if needed
+		jsonBytes, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		jsonStr := string(jsonBytes)
+		if len(jsonStr) > maxLen {
+			return jsonStr[:maxLen] + "... (truncated)"
+		}
+		// Try to unmarshal back to map to apply sanitization
+		var m map[string]any
+		if err := json.Unmarshal(jsonBytes, &m); err == nil {
+			return sanitizeForLogging(m, maxLen)
+		}
+		return jsonStr
+	}
+}
+
+// BeforeToolCall logs the tool call with sanitized input
 func (c *DefaultCallback) BeforeToolCall(ctx context.Context, toolName string, input any) (any, error) {
 	if c.Logger != nil {
-		c.Logger.Info("Calling tool", "tool", toolName, "input", input)
+		sanitizedInput := sanitizeForLogging(input, 500)
+		c.Logger.Info("Calling tool", "tool", toolName, "input", sanitizedInput)
 	}
 	return nil, nil
 }
 
-// AfterToolCall logs the tool result
+// AfterToolCall logs the tool result with sanitized output
 func (c *DefaultCallback) AfterToolCall(ctx context.Context, toolName string, input any, output any) (any, error) {
 	if c.Logger != nil {
-		c.Logger.Info("Tool completed", "tool", toolName, "output", output)
+		sanitizedOutput := sanitizeForLogging(output, 500)
+		c.Logger.Info("Tool completed", "tool", toolName, "output", sanitizedOutput)
 	}
 	return nil, nil
 }

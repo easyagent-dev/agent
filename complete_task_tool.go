@@ -31,7 +31,7 @@ func (t *CompleteTaskTool) Description() string {
 	return "Completes the user query and output the final results"
 }
 
-// GenerateSchema generates a JSON schema from the InputType
+// InputSchema generates a JSON schema from the InputType
 func (t *CompleteTaskTool) InputSchema() any {
 	return t.outputSchema
 }
@@ -45,7 +45,7 @@ func (t *CompleteTaskTool) Usage() string {
 	return t.usage
 }
 
-// Execute runs the tool with the provided parameters
+// Run runs the tool with the provided parameters
 func (t *CompleteTaskTool) Run(ctx context.Context, input map[string]any) (any, error) {
 	return input, nil
 }
