@@ -109,7 +109,8 @@ func main() {
 		Description:  "An AI assistant that can provide weather information",
 		Instructions: "You are a helpful assistant that provides weather information for any location requested by the user.",
 		Tools:        []agent.ModelTool{weatherTool},
-		Callback:     &agent.DefaultCallback{},
+		Callback:     agent.NewDefaultCallback(&agent.DefaultLogger{}),
+		Logger:       &agent.DefaultLogger{},
 	}
 
 	// Create OpenAI model

@@ -37,16 +37,27 @@ func ToolsPrompts(tools []ModelTool) (string, error) {
 	if len(tools) == 0 {
 		return "No tools", nil
 	}
-	lines := make([]string, len(tools))
-	for _, tool := range tools {
+
+	// Use strings.Builder for efficient string concatenation
+	var builder strings.Builder
+	builder.Grow(len(tools) * 256) // Pre-allocate reasonable size
+
+	for i, tool := range tools {
+		if i > 0 {
+			builder.WriteString("\n")
+		}
 		inputSchema, _ := json.Marshal(tool.InputSchema())
-		line := "## " + tool.Name()
-		line += "\nDescription:" + tool.Description()
-		line += "\nInput: ```jsonschema\n" + string(inputSchema) + "\n```"
-		line += "\nUsage: ```" + tool.Usage() + "\n```"
-		lines = append(lines, line)
+		builder.WriteString("## ")
+		builder.WriteString(tool.Name())
+		builder.WriteString("\nDescription:")
+		builder.WriteString(tool.Description())
+		builder.WriteString("\nInput: ```jsonschema\n")
+		builder.Write(inputSchema)
+		builder.WriteString("\n```\nUsage: ```")
+		builder.WriteString(tool.Usage())
+		builder.WriteString("\n```")
 	}
-	return strings.Join(lines, "\n"), nil
+	return builder.String(), nil
 }
 
 // Template cache for better performance

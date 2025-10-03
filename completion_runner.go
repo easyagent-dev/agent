@@ -4,34 +4,67 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"time"
+
 	"github.com/easymvp-ai/llm"
 	"github.com/google/uuid"
 )
 
+// Helper functions for timing
+func getCurrentTimestamp() int64 {
+	return time.Now().Unix()
+}
+
+func getCurrentNanos() int64 {
+	return time.Now().UnixNano()
+}
+
+const (
+	// DefaultMaxMessageHistory is the default maximum number of messages to keep in history
+	DefaultMaxMessageHistory = 100
+	// InputSummaryMaxLen is the maximum length for input summary in error messages
+	InputSummaryMaxLen = 200
+	// InputSummaryEllipsis is the ellipsis string for truncated input summaries
+	InputSummaryEllipsis = "..."
+)
+
 type CompletionRunner struct {
-	agent        *Agent
-	model        llm.CompletionModel
-	toolRegistry *ToolRegistry
+	agent             *Agent
+	model             llm.CompletionModel
+	toolRegistry      *ToolRegistry
+	maxMessageHistory int
 }
 
 var _ Runner = (*CompletionRunner)(nil)
 
 func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (Runner, error) {
+	// Validate agent configuration
+	if err := agent.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid agent: %w", err)
+	}
+
 	toolRegistry := NewToolRegistry()
 	for _, tool := range agent.Tools {
-		_ = toolRegistry.RegisterTool(tool)
+		if err := toolRegistry.RegisterTool(tool); err != nil {
+			return nil, fmt.Errorf("failed to register tool %s: %w", tool.Name(), err)
+		}
 	}
 	return &CompletionRunner{
-		agent:        agent,
-		model:        model,
-		toolRegistry: toolRegistry,
+		agent:             agent,
+		model:             model,
+		toolRegistry:      toolRegistry,
+		maxMessageHistory: DefaultMaxMessageHistory,
 	}, nil
 }
 
 // Run executes the agent with the given content
 func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentResponse, error) {
+	// Validate request
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
 	var results any = nil
 	_ = r.toolRegistry.RegisterTool(NewCompleteTaskTool(req.OutputSchema, req.OutputUsage))
 
@@ -39,9 +72,6 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 	maxIterations := req.MaxIterations
 
 	userMessage := messages[len(messages)-1]
-	if userMessage.Role != llm.RoleUser {
-		return nil, errors.New("last message is not user message")
-	}
 	agentContext := &AgentContext{
 		Agent:       r.agent,
 		Messages:    messages,
@@ -95,6 +125,19 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 				Content: fmt.Sprintf("ERROR [Iteration %d]: Model completion failed: %s\n\nPlease try a different approach or tool.", i+1, err.Error()),
 			})
 			continue
+		}
+
+		// Call AfterModel callback
+		afterResp, err := callback.AfterModel(ctx, r.model.Name(), req.Model, completionReq, output)
+		if err != nil {
+			messages = append(messages, &llm.ModelMessage{
+				Role:    llm.RoleUser,
+				Content: fmt.Sprintf("ERROR [Iteration %d]: AfterModel callback failed: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
+			})
+			continue
+		}
+		if afterResp != nil {
+			output = afterResp
 		}
 
 		toolCall := &llm.ToolCall{}
@@ -158,11 +201,27 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			}
 		}
 
+		// Track tool execution with timing
+		startTime := getCurrentTimestamp()
+		startNano := getCurrentNanos()
 		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
+		duration := getCurrentNanos() - startNano
+
+		// Record execution in history
+		execution := ToolExecution{
+			ToolName:  toolCall.Name,
+			Input:     toolCall.Input,
+			Output:    toolCallOutput,
+			Error:     err,
+			Duration:  duration,
+			Timestamp: startTime,
+		}
+		agentContext.AddExecution(execution)
+
 		if err != nil {
 			inputSummary := fmt.Sprintf("%v", toolCall.Input)
-			if len(inputSummary) > 200 {
-				inputSummary = inputSummary[:200] + "..."
+			if len(inputSummary) > InputSummaryMaxLen {
+				inputSummary = inputSummary[:InputSummaryMaxLen] + InputSummaryEllipsis
 			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
@@ -217,6 +276,15 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 						Output: string(content),
 					},
 				})
+			}
+		}
+
+		// Trim message history to prevent unbounded growth
+		if len(messages) > r.maxMessageHistory {
+			// Keep initial messages and recent history
+			keepInitial := 1 // Keep at least the first user message
+			if len(messages)-r.maxMessageHistory+keepInitial > 0 {
+				messages = append(messages[:keepInitial], messages[len(messages)-r.maxMessageHistory+keepInitial:]...)
 			}
 		}
 	}
