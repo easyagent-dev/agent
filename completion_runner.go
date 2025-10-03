@@ -86,6 +86,8 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 
 		completed := false
 		callback := r.agent.Callback
+		usage := llm.TokenUsage{}
+		totalCost := 0.0
 
 		for i := 0; i < maxIterations && !completed; i++ {
 			// Check context cancellation
@@ -147,6 +149,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			streamClosed := false
 			var toolCall *llm.ToolCall
 
+			reasoning := ""
 			// Process stream chunks
 			for {
 				if streamClosed || completed || toolCall != nil {
@@ -161,7 +164,14 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 					}
 
 					chunkType := chunk.Type()
-					if chunkType == llm.TextChunkType {
+					if chunkType == llm.ReasoningChunkType {
+						reasoningChunk := chunk.(llm.StreamReasoningChunk)
+						reasoning += reasoningChunk.Reasoning
+						eventChan <- AgentEvent{
+							Type:      AgentEventTypeReasoning,
+							Reasoning: &reasoning,
+						}
+					} else if chunkType == llm.TextChunkType {
 						textChunk := chunk.(llm.StreamTextChunk)
 						content := textChunk.Text
 
@@ -182,7 +192,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 						if currentToolCall != nil {
 							if toolCompleted {
 								toolCall = currentToolCall
-								completed = true
+								streamClosed = true
 							} else {
 								eventChan <- AgentEvent{
 									Type:     AgentEventTypeUseTool,
@@ -190,6 +200,12 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 									Partial:  true,
 								}
 							}
+						}
+					} else if chunkType == llm.UsageChunkType {
+						usageChunk := chunk.(llm.StreamUsageChunk)
+						usage.Append(usageChunk.Usage)
+						if usageChunk.Cost != nil {
+							totalCost += *usageChunk.Cost
 						}
 					}
 				case <-ctx.Done():
@@ -263,7 +279,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			// Track tool execution with timing
 			startTime := getCurrentTimestamp()
 			startNano := getCurrentNanos()
-			toolCallOutput, err := tool.Run(ctx, toolCall.Input)
+			toolCallOutput, err := tool.Run(ctx, toolCall.Input.(map[string]any))
 			duration := getCurrentNanos() - startNano
 
 			// Record execution in history
@@ -518,7 +534,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		// Track tool execution with timing
 		startTime := getCurrentTimestamp()
 		startNano := getCurrentNanos()
-		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
+		toolCallOutput, err := tool.Run(ctx, toolCall.Input.(map[string]any))
 		duration := getCurrentNanos() - startNano
 
 		// Record execution in history

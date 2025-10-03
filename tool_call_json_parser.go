@@ -34,9 +34,9 @@ func (p *ToolCallJsonParser) Parse() (*llm.ToolCall, bool, error) {
 		var currentToolCall llm.ToolCall
 		err := json.Unmarshal([]byte(p.buffer), &currentToolCall)
 		if err != nil {
-			// Can't parse yet, return empty events
-			return &currentToolCall, true, nil
+			return nil, false, err
 		}
+		return &currentToolCall, true, nil
 	} else {
 		toolName := p.parser.Get("name")
 		if toolName != nil {

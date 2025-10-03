@@ -5,10 +5,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"github.com/easymvp-ai/llm"
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/easymvp-ai/llm"
 )
 
 //go:embed prompts/json_system.md

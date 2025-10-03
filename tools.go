@@ -11,18 +11,19 @@ type ModelTool interface {
 	// Description returns a human-readable description of what the tool does
 	Description() string
 
-	// InputSchema returns the JSON schema for the tool's input parameters
-	// This should be a struct that can be marshaled to JSON schema
+	// InputSchema returns the Go type for the tool's output
+	// This should be a struct type that can be used for JSON marshaling
 	InputSchema() any
 
-	// OutputSchema returns the JSON schema for the tool's output
-	// This should be a struct that can be marshaled to JSON schema
+	// OutputSchema generates a JSON schema from the InputType
+	// This method supports jsonschema struct tags for annotations
+	// It can be overridden by tools that need custom schema generation
 	OutputSchema() any
 
 	// Run executes the tool with the given input and returns the result
 	// The input will be unmarshaled according to InputSchema
 	// The context can be used for cancellation and timeouts
-	Run(ctx context.Context, input any) (any, error)
+	Run(ctx context.Context, input map[string]any) (any, error)
 
 	// Usage returns an example of how to use the tool in JSON format
 	Usage() string
