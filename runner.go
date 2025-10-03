@@ -7,8 +7,5 @@ import (
 
 type Runner interface {
 	Run(ctx context.Context, req *AgentRequest) (*AgentResponse, error)
-}
-
-type StreamRunner interface {
-	RunStream(ctx context.Context, req *AgentRequest) (*AgentStreamResponse, error)
+	StreamRun(ctx context.Context, req *AgentRequest) (*AgentStreamResponse, error)
 }

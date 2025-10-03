@@ -32,9 +32,6 @@ type AgentContext struct {
 	// Messages is the current conversation history
 	Messages []*llm.ModelMessage
 
-	// ToolsCalled is the list of all tool calls made during execution
-	ToolsCalled []*llm.ToolCall
-
 	// Session is a key-value store for session-specific data
 	Session map[string]any
 
@@ -66,8 +63,8 @@ type ToolExecution struct {
 
 // IsToolCalled checks if a tool with the given name has been called during this execution.
 func (ac *AgentContext) IsToolCalled(name string) bool {
-	for _, toolCall := range ac.ToolsCalled {
-		if toolCall.Name == name {
+	for _, toolCall := range ac.ExecutionHistory {
+		if toolCall.ToolName == name {
 			return true
 		}
 	}

@@ -56,11 +56,7 @@ type AgentEvent struct {
 	// ErrorMessage contains error details (for Error events)
 	ErrorMessage *string
 
-	// Input contains tool input (for UseTool events)
-	Input any
-
-	// Output contains tool output (for UseTool events)
-	Output any
+	ToolCall *llm.ToolCall
 
 	// Partial indicates if this is a partial event (more data coming)
 	Partial bool
