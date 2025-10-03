@@ -30,7 +30,7 @@ const (
 )
 
 type CompletionRunner struct {
-	agent             *Agent
+	agent             *CompletionAgent
 	model             llm.CompletionModel
 	toolRegistry      *ToolRegistry
 	maxMessageHistory int
@@ -38,7 +38,7 @@ type CompletionRunner struct {
 
 var _ Runner = (*CompletionRunner)(nil)
 
-func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (Runner, error) {
+func NewCompletionRunner(agent *CompletionAgent, model llm.CompletionModel) (Runner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)

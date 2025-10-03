@@ -27,7 +27,7 @@ func WithAgentContext(ctx context.Context, ac *AgentContext) context.Context {
 // It tracks the agent state, conversation history, and execution history.
 type AgentContext struct {
 	// Agent is the agent being executed
-	Agent *Agent
+	Agent *CompletionAgent
 
 	// Messages is the current conversation history
 	Messages []*llm.ModelMessage

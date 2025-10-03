@@ -5,7 +5,7 @@ import "errors"
 // Agent represents an AI agent with specific capabilities and behaviors.
 // It encapsulates the agent's identity, instructions, available tools,
 // callback handlers, and logging configuration.
-type Agent struct {
+type CompletionAgent struct {
 	// Name is the identifier for this agent
 	Name string
 
@@ -26,7 +26,7 @@ type Agent struct {
 }
 
 // Validate validates the agent configuration
-func (a *Agent) Validate() error {
+func (a *CompletionAgent) Validate() error {
 	if a.Name == "" {
 		return errors.New("agent name is required")
 	}
@@ -44,7 +44,7 @@ func (a *Agent) Validate() error {
 }
 
 // GetLogger returns the agent's logger or a NoOpLogger if none is set
-func (a *Agent) GetLogger() Logger {
+func (a *CompletionAgent) GetLogger() Logger {
 	if a.Logger == nil {
 		return &NoOpLogger{}
 	}

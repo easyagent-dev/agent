@@ -104,7 +104,7 @@ func main() {
 	weatherTool := NewWeatherTool()
 
 	// Create an agent with the weather tool
-	agentInstance := &agent.Agent{
+	agentInstance := &agent.CompletionAgent{
 		Name:         "Weather Assistant",
 		Description:  "An AI assistant that can provide weather information",
 		Instructions: "You are a helpful assistant that provides weather information for any location requested by the user.",
