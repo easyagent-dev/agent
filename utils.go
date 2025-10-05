@@ -1,15 +1,11 @@
 package agent
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"sync"
-	"text/template"
-
 	"github.com/easyagent-dev/llm"
+	"strings"
 )
 
 //go:embed prompts/json_system.md
@@ -21,7 +17,7 @@ func GetJsonAgentSystemPrompt(agent *Agent, message *llm.ModelMessage, tools []M
 		return "", fmt.Errorf("failed to create tools prompt: %w", err)
 	}
 
-	prompts, err := GetPrompts(jsonSystemPrompt, map[string]interface{}{
+	prompts, err := llm.GetPrompts(jsonSystemPrompt, map[string]interface{}{
 		"agent":     agent,
 		"tools":     toolsPrompt,
 		"userQuery": message.Content,
@@ -63,41 +59,4 @@ func ToolsPrompts(tools []ModelTool) (string, error) {
 		builder.WriteString("\n</tool>")
 	}
 	return builder.String(), nil
-}
-
-// Template cache for better performance
-var (
-	templateCache = make(map[string]*template.Template)
-	templateMutex sync.RWMutex
-)
-
-// GetPrompts executes a template with caching for better performance
-func GetPrompts(prompt string, params map[string]interface{}) (string, error) {
-	// Try to get cached template first (read lock)
-	templateMutex.RLock()
-	tmpl, exists := templateCache[prompt]
-	templateMutex.RUnlock()
-
-	if !exists {
-		// Parse and cache the template (write lock)
-		templateMutex.Lock()
-		// Double-check in case another goroutine added it
-		if tmpl, exists = templateCache[prompt]; !exists {
-			var err error
-			tmpl, err = template.New("prompt").Parse(prompt)
-			if err != nil {
-				templateMutex.Unlock()
-				return "", fmt.Errorf("failed to parse template: %w", err)
-			}
-			templateCache[prompt] = tmpl
-		}
-		templateMutex.Unlock()
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, params); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return buf.String(), nil
 }
