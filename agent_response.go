@@ -17,7 +17,10 @@ type AgentResponse struct {
 
 	// Cost is the estimated cost of the execution in USD
 	// May be nil if cost tracking is not enabled
-	Cost *float64
+	Cost *float64 `json:"cost"`
+
+	// ToolExecutions is a list of tool executions that occurred during the agent's execution
+	ToolCalls []*llm.ToolCall `json:"toolCalls"`
 }
 
 // AgentStreamResponse is a channel that streams agent events during execution.
@@ -32,7 +35,7 @@ const (
 	AgentEventTypeText AgentEventType = "text"
 
 	// AgentEventTypeUseTool indicates a tool usage event
-	AgentEventTypeUseTool AgentEventType = "use-tool"
+	AgentEventTypeUseTool AgentEventType = "use_tool"
 
 	// AgentEventTypeReasoning indicates an internal reasoning event
 	AgentEventTypeReasoning AgentEventType = "reasoning"
@@ -56,6 +59,7 @@ type AgentEvent struct {
 	// ErrorMessage contains error details (for Error events)
 	ErrorMessage *string
 
+	// ToolCall contains the tool call (for UseTool events)
 	ToolCall *llm.ToolCall
 
 	// Partial indicates if this is a partial event (more data coming)

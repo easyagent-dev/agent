@@ -2,12 +2,29 @@ package agent
 
 import "errors"
 
+type RunnerType string
+
+const (
+	RunnerTypeCompletion   RunnerType = "completion"
+	RunnerTypeConversation RunnerType = "conversation"
+	RunnerTypeTask         RunnerType = "task"
+)
+
 // Agent represents an AI agent with specific capabilities and behaviors.
 // It encapsulates the agent's identity, instructions, available tools,
 // callback handlers, and logging configuration.
-type CompletionAgent struct {
+type Agent struct {
 	// Name is the identifier for this agent
 	Name string
+
+	// ModelProvider is the model provider
+	ModelProvider string
+
+	// Model is the model provider
+	Model string
+
+	// Type is the type of agent this is
+	Type RunnerType
 
 	// Description provides a brief explanation of the agent's purpose
 	Description string
@@ -18,15 +35,12 @@ type CompletionAgent struct {
 	// Tools are the available tools this agent can use
 	Tools []ModelTool
 
-	// Callback handles lifecycle events during agent execution
-	Callback Callback
-
-	// Logger handles logging for this agent (optional, defaults to NoOpLogger)
-	Logger Logger
+	// Trace is whether to trace the agent execution
+	Trace bool
 }
 
 // Validate validates the agent configuration
-func (a *CompletionAgent) Validate() error {
+func (a *Agent) Validate() error {
 	if a.Name == "" {
 		return errors.New("agent name is required")
 	}
@@ -36,17 +50,6 @@ func (a *CompletionAgent) Validate() error {
 	if a.Instructions == "" {
 		return errors.New("agent instructions are required")
 	}
-	if a.Callback == nil {
-		return errors.New("agent callback is required")
-	}
 	// Logger is optional, will default to NoOpLogger if not set
 	return nil
-}
-
-// GetLogger returns the agent's logger or a NoOpLogger if none is set
-func (a *CompletionAgent) GetLogger() Logger {
-	if a.Logger == nil {
-		return &NoOpLogger{}
-	}
-	return a.Logger
 }

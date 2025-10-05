@@ -30,15 +30,13 @@ const (
 )
 
 type CompletionRunner struct {
-	agent             *CompletionAgent
+	agent             *Agent
 	model             llm.CompletionModel
 	toolRegistry      *ToolRegistry
 	maxMessageHistory int
 }
 
-var _ Runner = (*CompletionRunner)(nil)
-
-func NewCompletionRunner(agent *CompletionAgent, model llm.CompletionModel) (Runner, error) {
+func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (*CompletionRunner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)
@@ -59,7 +57,7 @@ func NewCompletionRunner(agent *CompletionAgent, model llm.CompletionModel) (Run
 }
 
 // StreamRun executes the agent with streaming support, returning a channel of events
-func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*AgentStreamResponse, error) {
+func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, options ...llm.CompletionOption) (*AgentStreamResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -85,7 +83,6 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 		ctx = WithAgentContext(ctx, agentContext)
 
 		completed := false
-		callback := r.agent.Callback
 		usage := llm.TokenUsage{}
 		totalCost := 0.0
 
@@ -101,7 +98,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			default:
 			}
 
-			prompts, err := GetJsonAgentSystemPrompt(r.agent, req.Options, userMessage, r.toolRegistry.GetTools())
+			prompts, err := GetJsonAgentSystemPrompt(r.agent, options, userMessage, r.toolRegistry.GetTools())
 			if err != nil {
 				errMsg := err.Error()
 				eventChan <- AgentEvent{
@@ -112,26 +109,8 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 			}
 
 			completionReq := &llm.CompletionRequest{
-				Model:        req.Model,
 				Instructions: prompts,
 				Messages:     messages,
-			}
-
-			completionResp, err := callback.BeforeModel(ctx, r.model.Name(), req.Model, completionReq)
-			if err != nil {
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to execute BeforeModel callback: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
-				})
-				continue
-			}
-
-			if completionResp != nil {
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleAssistant,
-					Content: completionResp.Output,
-				})
-				continue
 			}
 
 			// Use StreamComplete for streaming
@@ -246,50 +225,12 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 				continue
 			}
 
-			if tool.Name() != CompleteTaskToolName {
-				beforeToolCallOutput, err := callback.BeforeToolCall(ctx, toolCall.Name, toolCall.Input)
-				if err != nil {
-					messages = append(messages, &llm.ModelMessage{
-						Role:    llm.RoleUser,
-						Content: fmt.Sprintf("ERROR [Iteration %d]: BeforeToolCall callback failed for tool '%s'.\n\nError: %s\n\nPlease try a different tool or approach.", i+1, toolCall.Name, err.Error()),
-					})
-					continue
-				}
-
-				if beforeToolCallOutput != nil {
-					content, err := json.Marshal(beforeToolCallOutput)
-					if err != nil {
-						errMsg := fmt.Sprintf("failed to marshal tool call output: %v", err)
-						eventChan <- AgentEvent{
-							Type:         AgentEventTypeError,
-							ErrorMessage: &errMsg,
-						}
-						return
-					}
-					messages = append(messages, &llm.ModelMessage{
-						Role:    llm.RoleTool,
-						Content: string(content),
-					})
-					continue
-				}
-			}
-
 			// Track tool execution with timing
-			startTime := getCurrentTimestamp()
-			startNano := getCurrentNanos()
+			toolCall.StartAt = time.Now()
 			toolCallOutput, err := tool.Run(ctx, toolCall.Input)
-			duration := getCurrentNanos() - startNano
+			toolCall.EndAt = time.Now()
 
-			// Record execution in history
-			execution := ToolExecution{
-				ToolName:  toolCall.Name,
-				Input:     toolCall.Input,
-				Output:    toolCallOutput,
-				Error:     err,
-				Duration:  duration,
-				Timestamp: startTime,
-			}
-			agentContext.AddExecution(execution)
+			agentContext.AppendToolCall(toolCall)
 
 			if err != nil {
 				inputSummary := fmt.Sprintf("%v", toolCall.Input)
@@ -301,34 +242,6 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 					Content: fmt.Sprintf("ERROR [Iteration %d]: Tool '%s' execution failed.\n\nTool Input: %s\n\nError: %s\n\nPlease review the error and adjust your tool parameters or try a different approach.", i+1, toolCall.Name, inputSummary, err.Error()),
 				})
 				continue
-			}
-
-			if tool.Name() != CompleteTaskToolName {
-				afterToolCallOutput, err := callback.AfterToolCall(ctx, toolCall.Name, toolCall.Input, toolCallOutput)
-				if err != nil {
-					messages = append(messages, &llm.ModelMessage{
-						Role:    llm.RoleUser,
-						Content: fmt.Sprintf("ERROR [Iteration %d]: AfterToolCall callback failed for tool '%s'.\n\nError: %s\n\nThe tool executed successfully, but post-processing failed. Please proceed with the next step.", i+1, toolCall.Name, err.Error()),
-					})
-					continue
-				}
-
-				if afterToolCallOutput != nil {
-					content, err := json.Marshal(afterToolCallOutput)
-					if err != nil {
-						errMsg := fmt.Sprintf("failed to marshal tool call output: %v", err)
-						eventChan <- AgentEvent{
-							Type:         AgentEventTypeError,
-							ErrorMessage: &errMsg,
-						}
-						return
-					}
-					messages = append(messages, &llm.ModelMessage{
-						Role:    llm.RoleTool,
-						Content: string(content),
-					})
-					continue
-				}
 			}
 
 			if tool.Name() == CompleteTaskToolName {
@@ -388,7 +301,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 }
 
 // Run executes the agent with the given content
-func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentResponse, error) {
+func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, options ...llm.CompletionOption) (*AgentResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -411,7 +324,6 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 	totalCost := 0.0
 
 	completed := false
-	callback := r.agent.Callback
 	consecutiveErrors := 0
 	for i := 0; i < maxIterations && !completed; i++ {
 		// Check context cancellation
@@ -421,34 +333,13 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 		default:
 		}
 
-		prompts, err := GetJsonAgentSystemPrompt(r.agent, req.Options, userMessage, r.toolRegistry.GetTools())
+		prompts, err := GetJsonAgentSystemPrompt(r.agent, options, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
 		}
 		completionReq := &llm.CompletionRequest{
-			Model:        req.Model,
 			Instructions: prompts,
 			Messages:     messages,
-		}
-		completionResp, err := callback.BeforeModel(ctx, r.model.Name(), req.Model, completionReq)
-		if err != nil {
-			consecutiveErrors++
-			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
-				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
-			}
-			messages = append(messages, &llm.ModelMessage{
-				Role:    llm.RoleUser,
-				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to execute BeforeModel callback: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
-			})
-			continue
-		}
-
-		if completionResp != nil {
-			messages = append(messages, &llm.ModelMessage{
-				Role:    llm.RoleAssistant,
-				Content: completionResp.Output,
-			})
-			continue
 		}
 
 		output, err := r.model.Complete(ctx, completionReq)
@@ -462,23 +353,6 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 				Content: fmt.Sprintf("ERROR [Iteration %d]: Model completion failed: %s\n\nPlease try a different approach or tool.", i+1, err.Error()),
 			})
 			continue
-		}
-
-		// Call AfterModel callback
-		afterResp, err := callback.AfterModel(ctx, r.model.Name(), req.Model, completionReq, output)
-		if err != nil {
-			consecutiveErrors++
-			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
-				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
-			}
-			messages = append(messages, &llm.ModelMessage{
-				Role:    llm.RoleUser,
-				Content: fmt.Sprintf("ERROR [Iteration %d]: AfterModel callback failed: %s\n\nPlease adjust your approach and try again.", i+1, err.Error()),
-			})
-			continue
-		}
-		if afterResp != nil {
-			output = afterResp
 		}
 
 		toolCall := &llm.ToolCall{}
@@ -523,45 +397,12 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			continue
 		}
 
-		if tool.Name() != CompleteTaskToolName {
-			beforeToolCallOutput, err := callback.BeforeToolCall(ctx, toolCall.Name, toolCall.Input)
-			if err != nil {
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: BeforeToolCall callback failed for tool '%s'.\n\nError: %s\n\nPlease try a different tool or approach.", i+1, toolCall.Name, err.Error()),
-				})
-				continue
-			}
-
-			if beforeToolCallOutput != nil {
-				content, err := json.Marshal(beforeToolCallOutput)
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
-				}
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleTool,
-					Content: string(content),
-				})
-				continue
-			}
-		}
-
 		// Track tool execution with timing
-		startTime := getCurrentTimestamp()
-		startNano := getCurrentNanos()
+		toolCall.StartAt = time.Now()
 		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
-		duration := getCurrentNanos() - startNano
+		toolCall.EndAt = time.Now()
 
-		// Record execution in history
-		execution := ToolExecution{
-			ToolName:  toolCall.Name,
-			Input:     toolCall.Input,
-			Output:    toolCallOutput,
-			Error:     err,
-			Duration:  duration,
-			Timestamp: startTime,
-		}
-		agentContext.AddExecution(execution)
+		agentContext.AppendToolCall(toolCall)
 
 		if err != nil {
 			consecutiveErrors++
@@ -579,31 +420,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			continue
 		}
 
-		// Reset consecutive errors on successful tool execution
 		consecutiveErrors = 0
-
-		if tool.Name() != CompleteTaskToolName {
-			afterToolCallOutput, err := callback.AfterToolCall(ctx, toolCall.Name, toolCall.Input, toolCallOutput)
-			if err != nil {
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: AfterToolCall callback failed for tool '%s'.\n\nError: %s\n\nThe tool executed successfully, but post-processing failed. Please proceed with the next step.", i+1, toolCall.Name, err.Error()),
-				})
-				continue
-			}
-
-			if afterToolCallOutput != nil {
-				content, err := json.Marshal(afterToolCallOutput)
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
-				}
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleTool,
-					Content: string(content),
-				})
-				continue
-			}
-		}
 
 		if tool.Name() == CompleteTaskToolName {
 			completed = true

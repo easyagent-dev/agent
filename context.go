@@ -30,7 +30,7 @@ func WithAgentContext(ctx context.Context, ac *AgentContext) context.Context {
 // This type is safe for concurrent use.
 type AgentContext struct {
 	// Agent is the agent being executed
-	Agent *CompletionAgent
+	Agent *Agent
 
 	// Messages is the current conversation history
 	Messages []*llm.ModelMessage
@@ -41,30 +41,8 @@ type AgentContext struct {
 	// mu protects ExecutionHistory from concurrent access
 	mu sync.RWMutex
 
-	// ExecutionHistory tracks detailed tool execution information
-	ExecutionHistory []ToolExecution
-}
-
-// ToolExecution represents a single tool execution with timing and result information.
-// This is useful for debugging, monitoring, and analytics.
-type ToolExecution struct {
-	// ToolName is the name of the tool that was executed
-	ToolName string
-
-	// Input is the input provided to the tool
-	Input any
-
-	// Output is the result returned by the tool
-	Output any
-
-	// Error contains any error that occurred during execution
-	Error error
-
-	// Duration is how long the tool execution took
-	Duration int64 // nanoseconds
-
-	// Timestamp is when the execution started (Unix timestamp)
-	Timestamp int64
+	// ToolExecutions tracks detailed tool execution information
+	ToolCalls []*llm.ToolCall
 }
 
 // IsToolCalled checks if a tool with the given name has been called during this execution.
@@ -73,37 +51,36 @@ func (ac *AgentContext) IsToolCalled(name string) bool {
 	ac.mu.RLock()
 	defer ac.mu.RUnlock()
 
-	for _, toolCall := range ac.ExecutionHistory {
-		if toolCall.ToolName == name {
+	for _, toolCall := range ac.ToolCalls {
+		if toolCall.Name == name {
 			return true
 		}
 	}
 	return false
 }
 
-// AddExecution records a tool execution in the execution history.
+// AppendToolCall records a tool execution in the execution history.
 // This method is safe for concurrent use.
-func (ac *AgentContext) AddExecution(execution ToolExecution) {
+func (ac *AgentContext) AppendToolCall(toolCall *llm.ToolCall) {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
-
-	if ac.ExecutionHistory == nil {
-		ac.ExecutionHistory = make([]ToolExecution, 0, 10) // Pre-allocate with capacity
+	if ac.ToolCalls == nil {
+		ac.ToolCalls = make([]*llm.ToolCall, 0, 10) // Pre-allocate with capacity
 	}
-	ac.ExecutionHistory = append(ac.ExecutionHistory, execution)
+	ac.ToolCalls = append(ac.ToolCalls, toolCall)
 }
 
-// GetExecutionsByTool returns all executions for a specific tool.
+// FindToolCalls returns all executions for a specific tool.
 // This method is safe for concurrent use.
-func (ac *AgentContext) GetExecutionsByTool(toolName string) []ToolExecution {
+func (ac *AgentContext) FindToolCalls(toolName string) []*llm.ToolCall {
 	ac.mu.RLock()
 	defer ac.mu.RUnlock()
 
-	executions := make([]ToolExecution, 0, len(ac.ExecutionHistory)/2) // Reasonable pre-allocation
-	for _, exec := range ac.ExecutionHistory {
-		if exec.ToolName == toolName {
-			executions = append(executions, exec)
+	toolCalls := make([]*llm.ToolCall, 0, len(ac.ToolCalls)/2) // Reasonable pre-allocation
+	for _, toolCall := range ac.ToolCalls {
+		if toolCall.Name == toolName {
+			toolCalls = append(toolCalls, toolCall)
 		}
 	}
-	return executions
+	return toolCalls
 }

@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/easyagent-dev/agent/examples"
+	"github.com/easyagent-dev/llm/providers"
 	"log"
 	"os"
 
 	"github.com/easyagent-dev/agent"
-	"github.com/easyagent-dev/agent/examples/tools"
 	"github.com/easyagent-dev/llm"
-	"github.com/easyagent-dev/llm/openai"
 )
 
 func main() {
@@ -21,21 +21,19 @@ func main() {
 	}
 
 	// Create a weather tool
-	weatherTool := tools.NewWeatherTool()
+	weatherTool := examples.NewWeatherTool()
 
 	// Create an agent with the weather tool
-	agentInstance := &agent.CompletionAgent{
+	agentInstance := &agent.Agent{
 		Name:         "Weather Assistant",
 		Description:  "An AI assistant that can provide weather information",
 		Instructions: "You are a helpful assistant that provides weather information for any location requested by the user.",
 		Tools:        []agent.ModelTool{weatherTool},
-		Callback:     agent.NewDefaultCallback(&agent.DefaultLogger{}),
-		Logger:       &agent.DefaultLogger{},
 	}
 
 	// Create DeepSeek model using OpenAI-compatible API
 	// DeepSeek provides an OpenAI-compatible API endpoint
-	model, err := openai.NewOpenAIModel(
+	provider, err := providers.NewDeepSeekModelProvider(
 		llm.WithAPIKey(apiKey),
 		llm.WithBaseURL("https://api.deepseek.com"),
 	)
@@ -43,6 +41,10 @@ func main() {
 		log.Fatalf("Failed to create model: %v", err)
 	}
 
+	model, err := provider.NewCompletionModel("deepseek-reasoner")
+	if err != nil {
+		log.Fatalf("Failed to create model: %v", err)
+	}
 	// Create a completion runner
 	runner, err := agent.NewCompletionRunner(agentInstance, model)
 	if err != nil {
@@ -51,22 +53,20 @@ func main() {
 
 	// Create an agent request
 	req := &agent.AgentRequest{
-		Model: "deepseek-reasoner", // DeepSeek's chat model
 		Messages: []*llm.ModelMessage{
 			{
 				Role:    llm.RoleUser,
 				Content: "What's the weather like in Tokyo?",
 			},
 		},
-		OutputSchema:  llm.GenerateSchema[agent.Reply](),
+		OutputSchema:  llm.GenerateSchema[examples.Reply](),
 		OutputUsage:   "",
 		MaxIterations: 10,
-		Options:       []llm.CompletionOption{llm.WithUsage(true), llm.WithCost(true), llm.WithMaxTokens(1000), llm.WithReasoningEffort(llm.ReasoningEffortLow)},
 	}
 
 	// Run the agent with streaming
 	ctx := context.Background()
-	streamResp, err := runner.StreamRun(ctx, req)
+	streamResp, err := runner.StreamRun(ctx, req, llm.WithUsage(true), llm.WithCost(true), llm.WithMaxTokens(1000), llm.WithReasoningEffort(llm.ReasoningEffortLow))
 	if err != nil {
 		log.Fatalf("Failed to start streaming: %v", err)
 	}
