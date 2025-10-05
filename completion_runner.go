@@ -158,7 +158,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, cal
 						// Parse events
 						currentToolCall, toolCompleted, err := parser.Parse()
 						if err != nil {
-							errMsg := fmt.Sprintf("failed to parse stream: %v", err)
+							errMsg := fmt.Sprintf("failed to parse stream, content:%s, %v", content, err)
 							eventChan <- AgentEvent{
 								Type:         AgentEventTypeError,
 								ErrorMessage: &errMsg,
