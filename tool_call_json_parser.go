@@ -2,8 +2,8 @@ package agent
 
 import (
 	"encoding/json"
-	"github.com/easymvp-ai/llm"
-	"github.com/easymvp-ai/streamjson"
+	"github.com/easyagent-dev/llm"
+	"github.com/easyagent-dev/streamjson"
 )
 
 // ToolCallJsonParser parses streaming JSON for ToolCall
@@ -44,7 +44,7 @@ func (p *ToolCallJsonParser) Parse() (*llm.ToolCall, bool, error) {
 			if input != nil {
 				return &llm.ToolCall{
 					Name:  toolName.(string),
-					Input: input,
+					Input: input.(map[string]any),
 				}, false, nil
 			}
 		}

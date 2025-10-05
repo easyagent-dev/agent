@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 )
 
 // Callback defines lifecycle hooks for agent execution

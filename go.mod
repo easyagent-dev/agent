@@ -1,14 +1,17 @@
-module github.com/easymvp-ai/agent
+module github.com/easyagent-dev/agent
 
 go 1.24.4
 
-require github.com/easymvp-ai/llm v0.9.5
+require github.com/easyagent-dev/llm v0.9.6
+
+require (
+	github.com/easyagent-dev/streamjson v0.9.3
+	github.com/google/uuid v1.6.0
+)
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
-	github.com/easymvp-ai/streamjson v0.9.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/openai/openai-go/v3 v3.0.1 // indirect

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/easymvp-ai/agent"
+	"github.com/easyagent-dev/agent"
 	"math/rand"
 )
 

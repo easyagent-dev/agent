@@ -9,7 +9,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 )
 
 //go:embed prompts/json_system.md

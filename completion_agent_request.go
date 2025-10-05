@@ -2,7 +2,7 @@ package agent
 
 import (
 	"errors"
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 )
 
 // AgentRequest represents a request to execute an agent with specific parameters.

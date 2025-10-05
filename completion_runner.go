@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 	"github.com/google/uuid"
 )
 
@@ -274,20 +274,10 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest) (*A
 				}
 			}
 
-			// Validate tool input type
-			inputMap, ok := toolCall.Input.(map[string]any)
-			if !ok {
-				messages = append(messages, &llm.ModelMessage{
-					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: Invalid tool input format. Expected object, got %T\n\nPlease provide a valid JSON object as tool input.", i+1, toolCall.Input),
-				})
-				continue
-			}
-
 			// Track tool execution with timing
 			startTime := getCurrentTimestamp()
 			startNano := getCurrentNanos()
-			toolCallOutput, err := tool.Run(ctx, inputMap)
+			toolCallOutput, err := tool.Run(ctx, toolCall.Input)
 			duration := getCurrentNanos() - startNano
 
 			// Record execution in history
@@ -556,20 +546,10 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest) (*AgentRe
 			}
 		}
 
-		// Validate tool input type
-		inputMap, ok := toolCall.Input.(map[string]any)
-		if !ok {
-			messages = append(messages, &llm.ModelMessage{
-				Role:    llm.RoleUser,
-				Content: fmt.Sprintf("ERROR [Iteration %d]: Invalid tool input format. Expected object, got %T\n\nPlease provide a valid JSON object as tool input.", i+1, toolCall.Input),
-			})
-			continue
-		}
-
 		// Track tool execution with timing
 		startTime := getCurrentTimestamp()
 		startNano := getCurrentNanos()
-		toolCallOutput, err := tool.Run(ctx, inputMap)
+		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
 		duration := getCurrentNanos() - startNano
 
 		// Record execution in history

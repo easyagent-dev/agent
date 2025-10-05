@@ -16,9 +16,9 @@ import (
     "log"
     "os"
     
-    "github.com/easymvp-ai/agent"
-    "github.com/easymvp-ai/llm"
-    "github.com/easymvp-ai/llm/openai"
+    "github.com/easyagent-dev/agent"
+    "github.com/easyagent-dev/llm"
+    "github.com/easyagent-dev/llm/openai"
 )
 
 func main() {
@@ -73,7 +73,7 @@ func main() {
 ## Installation
 
 ```bash
-go get github.com/easymvp-ai/agent
+go get github.com/easyagent-dev/agent
 ```
 
 ## Creating Tools

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 )
 
 // contextKey is a private type for context keys to prevent collisions

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/easymvp-ai/llm"
+	"github.com/easyagent-dev/llm"
 )
 
 // AgentResponse represents the result of an agent execution.
