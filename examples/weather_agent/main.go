@@ -37,7 +37,7 @@ func main() {
 		log.Fatalf("Failed to create model: %v", err)
 	}
 
-	model, err := provider.NewCompletionModel("o4-mini")
+	model, err := provider.NewCompletionModel("o4-mini", llm.WithUsage(true), llm.WithCost(true), llm.WithMaxTokens(1000))
 	if err != nil {
 		log.Fatalf("Failed to create model: %v", err)
 	}
@@ -63,7 +63,7 @@ func main() {
 
 	// Run the agent
 	ctx := context.Background()
-	resp, err := runner.Run(ctx, req, llm.WithUsage(true), llm.WithCost(true), llm.WithMaxTokens(1000))
+	resp, err := runner.Run(ctx, req, agent.NewDefaultCallback(true))
 	if err != nil {
 		log.Fatalf("Failed to run agent: %v", err)
 	}

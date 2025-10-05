@@ -37,7 +37,7 @@ func main() {
 		log.Fatalf("Failed to create model: %v", err)
 	}
 
-	model, err := provider.NewCompletionModel("o4-mini")
+	model, err := provider.NewCompletionModel("o4-mini", llm.WithUsage(true), llm.WithCost(true))
 	if err != nil {
 		log.Fatalf("Failed to create model: %v", err)
 	}
@@ -62,7 +62,7 @@ func main() {
 
 	// Run the agent with streaming
 	ctx := context.Background()
-	streamResp, err := runner.StreamRun(ctx, req, llm.WithUsage(true), llm.WithCost(true), llm.WithMaxTokens(1000))
+	streamResp, err := runner.StreamRun(ctx, req, agent.NewDefaultCallback(true))
 	if err != nil {
 		log.Fatalf("Failed to start streaming: %v", err)
 	}

@@ -34,9 +34,6 @@ type Agent struct {
 
 	// Tools are the available tools this agent can use
 	Tools []ModelTool
-
-	// Trace is whether to trace the agent execution
-	Trace bool
 }
 
 // Validate validates the agent configuration

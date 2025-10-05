@@ -57,7 +57,7 @@ func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (*CompletionRu
 }
 
 // StreamRun executes the agent with streaming support, returning a channel of events
-func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, options ...llm.CompletionOption) (*AgentStreamResponse, error) {
+func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, callback Callback) (*AgentStreamResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -98,7 +98,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, opt
 			default:
 			}
 
-			prompts, err := GetJsonAgentSystemPrompt(r.agent, options, userMessage, r.toolRegistry.GetTools())
+			prompts, err := GetJsonAgentSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
 			if err != nil {
 				errMsg := err.Error()
 				eventChan <- AgentEvent{
@@ -301,7 +301,7 @@ func (r *CompletionRunner) StreamRun(ctx context.Context, req *AgentRequest, opt
 }
 
 // Run executes the agent with the given content
-func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, options ...llm.CompletionOption) (*AgentResponse, error) {
+func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -333,7 +333,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, options .
 		default:
 		}
 
-		prompts, err := GetJsonAgentSystemPrompt(r.agent, options, userMessage, r.toolRegistry.GetTools())
+		prompts, err := GetJsonAgentSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
 		}
@@ -342,7 +342,22 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, options .
 			Messages:     messages,
 		}
 
+		// Call BeforeModel callback
+		if callback != nil {
+			if err := callback.BeforeModel(ctx, r.agent.ModelProvider, r.agent.Model, prompts, messages); err != nil {
+				return nil, fmt.Errorf("callback BeforeModel failed: %w", err)
+			}
+		}
+
 		output, err := r.model.Complete(ctx, completionReq)
+
+		// Call AfterModel callback
+		if callback != nil && err == nil {
+			if cbErr := callback.AfterModel(ctx, r.agent.ModelProvider, r.agent.Model, prompts, messages, output.Output, output.Usage); cbErr != nil {
+				return nil, fmt.Errorf("callback AfterModel failed: %w", cbErr)
+			}
+		}
+
 		if err != nil {
 			consecutiveErrors++
 			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
@@ -397,10 +412,24 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, options .
 			continue
 		}
 
+		// Call BeforeToolCall callback
+		if callback != nil {
+			if cbErr := callback.BeforeToolCall(ctx, toolCall.Name, toolCall.Input); cbErr != nil {
+				return nil, fmt.Errorf("callback BeforeToolCall failed: %w", cbErr)
+			}
+		}
+
 		// Track tool execution with timing
 		toolCall.StartAt = time.Now()
 		toolCallOutput, err := tool.Run(ctx, toolCall.Input)
 		toolCall.EndAt = time.Now()
+
+		// Call AfterToolCall callback
+		if callback != nil && err == nil {
+			if cbErr := callback.AfterToolCall(ctx, toolCall.Name, toolCall.Input, toolCallOutput); cbErr != nil {
+				return nil, fmt.Errorf("callback AfterToolCall failed: %w", cbErr)
+			}
+		}
 
 		agentContext.AppendToolCall(toolCall)
 
