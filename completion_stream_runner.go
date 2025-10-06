@@ -11,15 +11,15 @@ import (
 )
 
 type CompletionStreamRunner struct {
-	agent             *Agent
-	model             llm.CompletionModel
-	toolRegistry      *ToolRegistry
-	maxMessageHistory int
+	BaseRunner
+	agent        *Agent
+	model        llm.CompletionModel
+	toolRegistry *ToolRegistry
 }
 
 var _ StreamRunner = (*CompletionStreamRunner)(nil)
 
-func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel) (StreamRunner, error) {
+func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (StreamRunner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)
@@ -31,11 +31,17 @@ func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel) (StreamR
 			return nil, fmt.Errorf("failed to register tool %s: %w", tool.Name(), err)
 		}
 	}
+
+	config := newRunnerConfig(opts...)
+
 	return &CompletionStreamRunner{
-		agent:             agent,
-		model:             model,
-		toolRegistry:      toolRegistry,
-		maxMessageHistory: DefaultMaxMessageHistory,
+		BaseRunner: BaseRunner{
+			systemPrompts:     config.systemPrompts,
+			maxMessageHistory: config.maxMessageHistory,
+		},
+		agent:        agent,
+		model:        model,
+		toolRegistry: toolRegistry,
 	}, nil
 }
 
@@ -81,7 +87,7 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 			default:
 			}
 
-			prompts, err := GetJsonAgentSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
+			prompts, err := r.GetSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
 			if err != nil {
 				errMsg := err.Error()
 				eventChan <- AgentEvent{
@@ -268,13 +274,9 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 			agentContext.AppendToolCall(toolCall)
 
 			if err != nil {
-				inputSummary := fmt.Sprintf("%v", toolCall.Input)
-				if len(inputSummary) > InputSummaryMaxLen {
-					inputSummary = inputSummary[:InputSummaryMaxLen] + InputSummaryEllipsis
-				}
 				messages = append(messages, &llm.ModelMessage{
 					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: Tool '%s' execution failed.\n\nTool Input: %s\n\nError: %s\n\nPlease review the error and adjust your tool parameters or try a different approach.", i+1, toolCall.Name, inputSummary, err.Error()),
+					Content: fmt.Sprintf("ERROR [Iteration %d]: %s", i+1, err.Error()),
 				})
 				continue
 			}

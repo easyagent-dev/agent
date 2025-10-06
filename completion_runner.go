@@ -14,22 +14,18 @@ import (
 const (
 	// DefaultMaxMessageHistory is the default maximum number of messages to keep in history
 	DefaultMaxMessageHistory = 100
-	// InputSummaryMaxLen is the maximum length for input summary in error messages
-	InputSummaryMaxLen = 200
-	// InputSummaryEllipsis is the ellipsis string for truncated input summaries
-	InputSummaryEllipsis = "..."
 )
 
 type CompletionRunner struct {
-	agent             *Agent
-	model             llm.CompletionModel
-	toolRegistry      *ToolRegistry
-	maxMessageHistory int
+	BaseRunner
+	agent        *Agent
+	model        llm.CompletionModel
+	toolRegistry *ToolRegistry
 }
 
 var _ Runner = (*CompletionRunner)(nil)
 
-func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (Runner, error) {
+func NewCompletionRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (Runner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)
@@ -41,11 +37,17 @@ func NewCompletionRunner(agent *Agent, model llm.CompletionModel) (Runner, error
 			return nil, fmt.Errorf("failed to register tool %s: %w", tool.Name(), err)
 		}
 	}
+
+	config := newRunnerConfig(opts...)
+
 	return &CompletionRunner{
-		agent:             agent,
-		model:             model,
-		toolRegistry:      toolRegistry,
-		maxMessageHistory: DefaultMaxMessageHistory,
+		BaseRunner: BaseRunner{
+			systemPrompts:     config.systemPrompts,
+			maxMessageHistory: config.maxMessageHistory,
+		},
+		agent:        agent,
+		model:        model,
+		toolRegistry: toolRegistry,
 	}, nil
 }
 
@@ -82,7 +84,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 		default:
 		}
 
-		prompts, err := GetJsonAgentSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
+		prompts, err := r.GetSystemPrompt(r.agent, userMessage, r.toolRegistry.GetTools())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create prompts: %w", err)
 		}
@@ -187,13 +189,9 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
 				return nil, fmt.Errorf("exceeded max retries (%d) due to consecutive errors", req.MaxRetries)
 			}
-			inputSummary := fmt.Sprintf("%v", toolCall.Input)
-			if len(inputSummary) > InputSummaryMaxLen {
-				inputSummary = inputSummary[:InputSummaryMaxLen] + InputSummaryEllipsis
-			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: fmt.Sprintf("ERROR [Iteration %d]: Tool '%s' execution failed.\n\nTool Input: %s\n\nError: %s\n\nPlease review the error and adjust your tool parameters or try a different approach.", i+1, toolCall.Name, inputSummary, err.Error()),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: %s", i+1, err.Error()),
 			})
 			continue
 		}

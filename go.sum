@@ -10,6 +10,8 @@ github.com/easyagent-dev/llm v0.9.7 h1:3Ry/KlURiWZVMbOZUJuztOcttDWR49sHRYhzXWjWc
 github.com/easyagent-dev/llm v0.9.7/go.mod h1:HnmqKaFALWvKHjJlUxbk1Yg5U9ro8jVMVntqSHzRmvk=
 github.com/easyagent-dev/llm v0.9.8 h1:GcR0h87E08bganDU/il9hlP/tuBDKUuNmooaVGpvDCs=
 github.com/easyagent-dev/llm v0.9.8/go.mod h1:HnmqKaFALWvKHjJlUxbk1Yg5U9ro8jVMVntqSHzRmvk=
+github.com/easyagent-dev/llm v0.9.9 h1:vD9TwKCHLcSsEqhjDbkLmXLgIkApTNIqXbafsxp7kKI=
+github.com/easyagent-dev/llm v0.9.9/go.mod h1:HnmqKaFALWvKHjJlUxbk1Yg5U9ro8jVMVntqSHzRmvk=
 github.com/easyagent-dev/streamjson v0.9.3 h1:z9e48b7zjOPLlkS2BInfCnx+ENhkvG+sI/O88PYpxJg=
 github.com/easyagent-dev/streamjson v0.9.3/go.mod h1:h9mCs4CVfir1G9ZM2DXd8lZAWZbCln71eOggfLShzzk=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

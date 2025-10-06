@@ -2,12 +2,11 @@ package agent
 
 import "errors"
 
-type RunnerType string
+type AgentType string
 
 const (
-	RunnerTypeCompletion   RunnerType = "completion"
-	RunnerTypeConversation RunnerType = "conversation"
-	RunnerTypeTask         RunnerType = "task"
+	AgentTypeJSON AgentType = "json"
+	AgentTypeXml  AgentType = "xml"
 )
 
 // Agent represents an AI agent with specific capabilities and behaviors.
@@ -23,14 +22,14 @@ type Agent struct {
 	// Model is the model provider
 	Model string
 
-	// Type is the type of agent this is
-	Type RunnerType
-
 	// Description provides a brief explanation of the agent's purpose
 	Description string
 
 	// Instructions contain the system prompt or guidelines for the agent
 	Instructions string
+
+	//Type is the type of agent this is
+	Type AgentType
 
 	// Tools are the available tools this agent can use
 	Tools []ModelTool
