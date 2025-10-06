@@ -3,23 +3,22 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/easyagent-dev/llm"
 )
 
-type CompletionStreamRunner struct {
+type XMLCompletionStreamRunner struct {
 	BaseRunner
 	agent        *Agent
 	model        llm.CompletionModel
 	toolRegistry *ToolRegistry
 }
 
-var _ StreamRunner = (*CompletionStreamRunner)(nil)
+var _ StreamRunner = (*XMLCompletionStreamRunner)(nil)
 
-func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (StreamRunner, error) {
+func NewXMLCompletionStreamRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (StreamRunner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)
@@ -34,9 +33,15 @@ func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel, opts ...
 
 	config := newRunnerConfig(opts...)
 
-	return &CompletionStreamRunner{
+	// Use XML system prompt if no custom prompt is set
+	systemPrompt := xmlSystemPrompt
+	if config.systemPrompts != "" {
+		systemPrompt = config.systemPrompts
+	}
+
+	return &XMLCompletionStreamRunner{
 		BaseRunner: BaseRunner{
-			systemPrompts:     config.systemPrompts,
+			systemPrompts:     systemPrompt,
 			maxMessageHistory: config.maxMessageHistory,
 		},
 		agent:        agent,
@@ -45,8 +50,8 @@ func NewCompletionStreamRunner(agent *Agent, model llm.CompletionModel, opts ...
 	}, nil
 }
 
-// StreamRun executes the agent with streaming support, returning a channel of events
-func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentStreamResponse, error) {
+// Run executes the agent with streaming support, returning a channel of events
+func (r *XMLCompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentStreamResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -124,11 +129,12 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 				continue
 			}
 
-			// Create parser for streaming JSON tool calls
-			parser := NewToolCallJsonParser()
+			// Create parser for streaming XML tool calls
+			parser := NewToolCallXMLParser()
 			streamClosed := false
 			var toolCall *llm.ToolCall
 			var fullOutput string
+			reasoningSent := false
 
 			// Process stream chunks
 			for {
@@ -161,7 +167,7 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 						parser.Append(content)
 
 						// Parse events
-						currentToolCall, toolCompleted, err := parser.Parse()
+						currentToolCall, toolCompleted, reasoning, err := parser.Parse()
 						if err != nil {
 							errMsg := fmt.Sprintf("failed to parse stream, content:%s, %v", content, err)
 							eventChan <- AgentEvent{
@@ -169,6 +175,15 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 								ErrorMessage: &errMsg,
 							}
 							return
+						}
+
+						// Send reasoning event if available and not sent yet
+						if reasoning != nil && !reasoningSent {
+							eventChan <- AgentEvent{
+								Type:      AgentEventTypeReasoning,
+								Reasoning: reasoning,
+							}
+							reasoningSent = true
 						}
 
 						if currentToolCall != nil {
@@ -216,7 +231,7 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 			if toolCall == nil {
 				messages = append(messages, &llm.ModelMessage{
 					Role:    llm.RoleUser,
-					Content: fmt.Sprintf("ERROR [Iteration %d]: No valid tool call was generated. You MUST call a tool.\n\nPlease ensure your response contains a valid tool call.", i+1),
+					Content: fmt.Sprintf("ERROR [Iteration %d]: No valid tool call was generated. You MUST call a tool.\n\nPlease ensure your response contains a valid <use-tool> tag.", i+1),
 				})
 				continue
 			}
@@ -291,22 +306,14 @@ func (r *CompletionStreamRunner) Run(ctx context.Context, req *AgentRequest, cal
 						Content: "Tool call success, no results",
 					})
 				} else {
-					content, err := json.Marshal(toolCallOutput)
-					if err != nil {
-						errMsg := fmt.Sprintf("failed to marshal tool call output: %v", err)
-						eventChan <- AgentEvent{
-							Type:         AgentEventTypeError,
-							ErrorMessage: &errMsg,
-						}
-						return
-					}
+					content := fmt.Sprintf("%v", toolCallOutput)
 					messages = append(messages, &llm.ModelMessage{
 						Role: llm.RoleTool,
 						ToolCall: &llm.ToolCall{
 							ID:     toolCall.ID,
 							Name:   toolCall.Name,
 							Input:  toolCall.Input,
-							Output: string(content),
+							Output: content,
 						},
 					})
 				}

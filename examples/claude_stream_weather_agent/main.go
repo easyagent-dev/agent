@@ -4,20 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/easyagent-dev/agent/examples"
-	"github.com/easyagent-dev/llm/providers"
 	"log"
 	"os"
 
 	"github.com/easyagent-dev/agent"
+	"github.com/easyagent-dev/agent/examples"
 	"github.com/easyagent-dev/llm"
+	"github.com/easyagent-dev/llm/providers"
 )
 
 func main() {
-	// Get OpenAI API key from environment variable
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	// Get Anthropic API key from environment variable
+	apiKey := os.Getenv("CLAUDE_API_KEY")
 	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is not set")
+		log.Fatal("CLAUDE_API_KEY environment variable is not set")
 	}
 
 	// Create a weather tool
@@ -31,18 +31,20 @@ func main() {
 		Tools:        []agent.ModelTool{weatherTool},
 	}
 
-	// Create OpenAI model
-	provider, err := providers.NewOpenAIModelProvider(llm.WithAPIKey(apiKey))
+	// Create Claude model provider
+	provider, err := providers.NewClaudeModelProvider(llm.WithAPIKey(apiKey))
+	if err != nil {
+		log.Fatalf("Failed to create model provider: %v", err)
+	}
+
+	// Create completion model with Claude
+	model, err := provider.NewCompletionModel("sonnet-4.5", llm.WithUsage(true), llm.WithCost(true))
 	if err != nil {
 		log.Fatalf("Failed to create model: %v", err)
 	}
 
-	model, err := provider.NewCompletionModel("o4-mini", llm.WithUsage(true), llm.WithCost(true))
-	if err != nil {
-		log.Fatalf("Failed to create model: %v", err)
-	}
-	// Create a completion runner
-	runner, err := agent.NewJSONCompletionStreamRunner(agentInstance, model)
+	// Create an XML completion stream runner (Claude uses XML format for tool calls)
+	runner, err := agent.NewXMLCompletionStreamRunner(agentInstance, model)
 	if err != nil {
 		log.Fatalf("Failed to create runner: %v", err)
 	}
@@ -71,6 +73,10 @@ func main() {
 	fmt.Printf("\n=== Streaming Agent Events ===\n")
 	for event := range *streamResp {
 		switch event.Type {
+		case agent.AgentEventTypeReasoning:
+			if event.Reasoning != nil {
+				fmt.Printf("  [Reasoning] %s\n", *event.Reasoning)
+			}
 		case agent.AgentEventTypeUseTool:
 			if event.Partial {
 				// Partial tool call - show progress

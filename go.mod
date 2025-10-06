@@ -6,6 +6,7 @@ require github.com/easyagent-dev/llm v0.9.9
 
 require (
 	github.com/easyagent-dev/streamjson v0.9.3
+	github.com/easyagent-dev/streamxml v0.9.1
 	github.com/google/uuid v1.6.0
 )
 

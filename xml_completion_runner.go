@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,21 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	// DefaultMaxMessageHistory is the default maximum number of messages to keep in history
-	DefaultMaxMessageHistory = 100
-)
+//go:embed prompts/xml_system.md
+var xmlSystemPrompt string
 
-type CompletionRunner struct {
+type XMLCompletionRunner struct {
 	BaseRunner
 	agent        *Agent
 	model        llm.CompletionModel
 	toolRegistry *ToolRegistry
 }
 
-var _ Runner = (*CompletionRunner)(nil)
+var _ Runner = (*XMLCompletionRunner)(nil)
 
-func NewCompletionRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (Runner, error) {
+func NewXMLCompletionRunner(agent *Agent, model llm.CompletionModel, opts ...RunnerOption) (Runner, error) {
 	// Validate agent configuration
 	if err := agent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent: %w", err)
@@ -40,9 +37,15 @@ func NewCompletionRunner(agent *Agent, model llm.CompletionModel, opts ...Runner
 
 	config := newRunnerConfig(opts...)
 
-	return &CompletionRunner{
+	// Use XML system prompt if no custom prompt is set
+	systemPrompt := xmlSystemPrompt
+	if config.systemPrompts != "" {
+		systemPrompt = config.systemPrompts
+	}
+
+	return &XMLCompletionRunner{
 		BaseRunner: BaseRunner{
-			systemPrompts:     config.systemPrompts,
+			systemPrompts:     systemPrompt,
 			maxMessageHistory: config.maxMessageHistory,
 		},
 		agent:        agent,
@@ -51,8 +54,27 @@ func NewCompletionRunner(agent *Agent, model llm.CompletionModel, opts ...Runner
 	}, nil
 }
 
+// parseXMLToolCall parses a tool call from XML format
+func parseXMLToolCall(output string) (*llm.ToolCall, error) {
+	// Pattern to match: <use-tool name="tool_name">{"param":"value"}</use-tool>
+	// Parse the JSON input using the XML parser which internally uses JSON parser
+	parser := NewToolCallXMLParser()
+	parser.Append(output)
+	toolCall, completed, _, err := parser.Parse()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tool call: %w", err)
+	}
+
+	if !completed || toolCall == nil {
+		return nil, fmt.Errorf("incomplete tool call in output")
+	}
+
+	return toolCall, nil
+}
+
 // Run executes the agent with the given content
-func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentResponse, error) {
+func (r *XMLCompletionRunner) Run(ctx context.Context, req *AgentRequest, callback Callback) (*AgentResponse, error) {
 	// Validate request
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
@@ -121,8 +143,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 			continue
 		}
 
-		toolCall := &llm.ToolCall{}
-		err = json.Unmarshal([]byte(output.Output), toolCall)
+		toolCall, err := parseXMLToolCall(output.Output)
 		if err != nil {
 			consecutiveErrors++
 			if req.MaxRetries > 0 && consecutiveErrors > req.MaxRetries {
@@ -130,10 +151,11 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 			}
 			messages = append(messages, &llm.ModelMessage{
 				Role:    llm.RoleUser,
-				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to parse tool call from your response.\n\nInvalid JSON: %s\n\nError: %s\n\nPlease ensure your response is valid JSON matching the tool call schema.", i+1, output.Output, err.Error()),
+				Content: fmt.Sprintf("ERROR [Iteration %d]: Failed to parse tool call from your response.\n\nInvalid XML: %s\n\nError: %s\n\nPlease ensure your response contains a valid <use-tool> tag with proper JSON input.", i+1, output.Output, err.Error()),
 			})
 			continue
 		}
+
 		toolCall.ID = uuid.New().String()
 		messages = append(messages, &llm.ModelMessage{
 			Role:     llm.RoleAssistant,
@@ -208,17 +230,15 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 					Content: "Tool call success, no results",
 				})
 			} else {
-				content, err := json.Marshal(toolCallOutput)
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal tool call output: %w", err)
-				}
+				// For XML format, we need to serialize the output
+				content := fmt.Sprintf("%v", toolCallOutput)
 				messages = append(messages, &llm.ModelMessage{
 					Role: llm.RoleTool,
 					ToolCall: &llm.ToolCall{
 						ID:     toolCall.ID,
 						Name:   toolCall.Name,
 						Input:  toolCall.Input,
-						Output: string(content),
+						Output: content,
 					},
 				})
 			}
@@ -233,6 +253,7 @@ func (r *CompletionRunner) Run(ctx context.Context, req *AgentRequest, callback 
 			}
 		}
 	}
+
 	resp := &AgentResponse{
 		Output: results,
 		Usage:  usage,

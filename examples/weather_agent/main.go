@@ -43,7 +43,7 @@ func main() {
 	}
 
 	// Create a completion runner
-	runner, err := agent.NewCompletionRunner(agentInstance, model)
+	runner, err := agent.NewJSONCompletionRunner(agentInstance, model)
 	if err != nil {
 		log.Fatalf("Failed to create runner: %v", err)
 	}
