@@ -2,13 +2,6 @@ package agent
 
 import "errors"
 
-type AgentType string
-
-const (
-	AgentTypeJSON AgentType = "json"
-	AgentTypeXml  AgentType = "xml"
-)
-
 // Agent represents an AI agent with specific capabilities and behaviors.
 // It encapsulates the agent's identity, instructions, available tools,
 // callback handlers, and logging configuration.
@@ -27,9 +20,6 @@ type Agent struct {
 
 	// Instructions contain the system prompt or guidelines for the agent
 	Instructions string
-
-	//Type is the type of agent this is
-	Type AgentType
 
 	// Tools are the available tools this agent can use
 	Tools []ModelTool
