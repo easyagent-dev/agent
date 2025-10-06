@@ -37,15 +37,7 @@ func NewDefaultCallback(trace bool) *DefaultCallback {
 // BeforeModel is called before sending a request to the LLM
 func (c *DefaultCallback) BeforeModel(ctx context.Context, provider string, model string, prompts string, messages []*llm.ModelMessage) error {
 	if c.trace {
-		println("=== BeforeModel ===")
-		println("Provider:", provider)
-		println("Model:", model)
-		println("Prompts:", prompts)
-		println("Messages count:", len(messages))
-		for i, msg := range messages {
-			println("  Message", i, "- Role:", msg.Role, "Content length:", len(msg.Content))
-		}
-		println("==================")
+		println(fmt.Sprintf("BeforeModel: %s/%s | Prompts: %d chars | Messages: %d", provider, model, len(prompts), len(messages)))
 	}
 	return nil
 }
@@ -53,14 +45,11 @@ func (c *DefaultCallback) BeforeModel(ctx context.Context, provider string, mode
 // AfterModel is called after receiving a response from the LLM
 func (c *DefaultCallback) AfterModel(ctx context.Context, provider string, model string, prompts string, messages []*llm.ModelMessage, output string, usage *llm.TokenUsage) error {
 	if c.trace {
-		println("=== AfterModel ===")
-		println("Provider:", provider)
-		println("Model:", model)
-		println("Output:", output)
+		usageStr := "no usage"
 		if usage != nil {
-			println("Usage:", fmt.Sprintf("%+v", usage))
+			usageStr = fmt.Sprintf("in:%d out:%d", usage.TotalInputTokens, usage.TotalOutputTokens)
 		}
-		println("==================")
+		println(fmt.Sprintf("AfterModel: %s/%s | Output: %d chars | Usage: %s", provider, model, len(output), usageStr))
 	}
 	return nil
 }
@@ -68,10 +57,7 @@ func (c *DefaultCallback) AfterModel(ctx context.Context, provider string, model
 // BeforeToolCall is called before executing a tool
 func (c *DefaultCallback) BeforeToolCall(ctx context.Context, toolName string, input any) error {
 	if c.trace {
-		println("=== BeforeToolCall ===")
-		println("Tool Name:", toolName)
-		println("Input:", fmt.Sprintf("%+v", input))
-		println("======================")
+		println(fmt.Sprintf("BeforeToolCall: %s", toolName))
 	}
 	return nil
 }
@@ -79,11 +65,7 @@ func (c *DefaultCallback) BeforeToolCall(ctx context.Context, toolName string, i
 // AfterToolCall is called after a tool execution completes
 func (c *DefaultCallback) AfterToolCall(ctx context.Context, toolName string, input any, output interface{}) error {
 	if c.trace {
-		println("=== AfterToolCall ===")
-		println("Tool Name:", toolName)
-		println("Input:", fmt.Sprintf("%+v", input))
-		println("Output:", fmt.Sprintf("%+v", output))
-		println("=====================")
+		println(fmt.Sprintf("AfterToolCall: %s | Output: %T", toolName, output))
 	}
 	return nil
 }

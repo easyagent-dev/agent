@@ -42,7 +42,7 @@ func main() {
 		log.Fatalf("Failed to create model: %v", err)
 	}
 	// Create a completion runner
-	runner, err := agent.NewCompletionRunner(agentInstance, model)
+	runner, err := agent.NewCompletionStreamRunner(agentInstance, model)
 	if err != nil {
 		log.Fatalf("Failed to create runner: %v", err)
 	}
@@ -62,7 +62,7 @@ func main() {
 
 	// Run the agent with streaming
 	ctx := context.Background()
-	streamResp, err := runner.StreamRun(ctx, req, agent.NewDefaultCallback(true))
+	streamResp, err := runner.Run(ctx, req, agent.NewDefaultCallback(true))
 	if err != nil {
 		log.Fatalf("Failed to start streaming: %v", err)
 	}
